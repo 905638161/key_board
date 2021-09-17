@@ -1,0 +1,437 @@
+
+
+#include "sys.h"
+#include "datahandle.h"
+#include "usart.h"
+
+u32 USART_TXD_REGISTER = 0; //发送寄存器
+u16 USART_RXD_REGISTER = 0; //接收寄存器
+
+ALARM_SET		Alarm_Set;
+KEY_LED_SET		KEY_LED_Set;
+FLOW_METER_SET	Flow_meter_Set;
+IRAM_CAL		IRAM_Cal;
+OXYGEN_SET		Oxygen_Set;
+EFLOWMETER_SET	EflowMeter_Set;
+GET_ID			Get_Id;
+
+/**发送的数据数组**/
+u8 Version_Data[4];             //版本信息数据
+u8 KeyValue_Data[2];            //按键信息数据
+u8 PowerStatus_Data[2];         //电源信息数据
+u8 ElectronicFlowmeter_Data[5]; //电子流量信息数据
+u8 SPO2_Data[3];			    //血氧信息数据
+u8 FIO2_Data[3]; 				//顺磁氧信息数据
+u8 AA_ETCO2_0_Data[5];			//AA/ETCO2 信息数据0
+u8 AA_ETCO2_1_Data[8];			//AA/ETCO2 信息数据1
+u8 AA_ETCO2_2_Data[8];			//AA/ETCO2 信息数据2
+u8 AA_ETCO2_3_Data[5];			//AA/ETCO2 信息数据3
+u8 Calibration_ID_Data[3];		//校准信息
+
+/**接收到的数据数组**/
+u8 AlarmSet_Receive_Data[4];
+u8 KeyLED_Receive_Data[2];
+u8 ElectronicFlowmeter_Set_Receive_Data[4];
+u8 AA_ETCO2_Calibration_Receive_Data[2];
+u8 FIO2_Calibration_Receive_Data;
+u8 ElectronicFlowmeter_Calibration_Receive_Data;
+u8 Obtain_ID_Data;
+/**发送数据预处理**/
+/**
+ * @brief 版本号数据信息处理
+ * @param  A:主版本号
+    取值范围：0-15
+ * @param  B:次版本号
+    取值范围：0-31
+ * @param  C:修订版本号
+    取值范围：0-127
+ * @return None
+ * @details 对版本号进行设置
+**/
+void Version_Send(u8 A, u8 B, u8 C)
+{
+    u32 ver;
+	u16 temp;
+    ver = A << 12 | B << 7 | C;
+	Version_Data[0]=ver;
+	Version_Data[1]=ver>>8;
+	
+	/*电子流量计的版本号，未确定，暂时保留*/
+	Version_Data[2]=temp;  	 
+	Version_Data[2]=temp>>8;
+
+}
+
+/**
+ * @brief 键值信息的处理
+ * @param value：按键的键值
+ * @return None
+**/
+void KeyValue_handle(u32 value)
+{
+    KeyValue_Data[0] = value;
+    KeyValue_Data[1] = value >> 8;
+}
+/**
+ * @brief 电源信息的处理
+ * @param capacity：电池的电量，数值选择（0-6）
+		@arg：
+				0：电池未连接
+				1：电池耗尽
+				2：电池电量低
+				3：电池放电一半
+				4：电池满电
+				5：电池充电中
+				6：电池充电完成
+ * @param status：电源状态
+ * @return None
+**/
+void PowerStatus_handle(u8 capacity, u8 status)
+{
+    PowerStatus_Data[0] = capacity;
+    PowerStatus_Data[1] = status;
+}
+
+/**
+ * @brief 电子流量计数据处理
+ * @param O2Flow：氧气流速
+	取值范围：0-1600
+ * @param BalFlow：平衡气流速
+	取值范围：0-1600
+ * @param module：模式选择
+		@arg：
+				0：手动
+				1：自动
+ * @return	none
+**/
+void ElectronicFlowmeter_handle(u16 O2Flow, u16 BalFlow, u8 module)
+{
+    ElectronicFlowmeter_Data[0] = O2Flow;
+    ElectronicFlowmeter_Data[1] = O2Flow >> 1;
+    ElectronicFlowmeter_Data[2] = BalFlow;
+    ElectronicFlowmeter_Data[3] = BalFlow >> 8;
+    ElectronicFlowmeter_Data[4] = module;
+}
+
+/**
+ * @brief 血氧的数据处理
+ * @param spo2:
+ * @return None
+ * @details 如果status取0，则spo2=0xff,pluse=0xff
+**/
+void SPO2_handle(u8 spo2, u8 plus, u8 status)
+{
+    if(status == 0)
+    {
+        SPO2_Data[0] = 0xff;
+        SPO2_Data[1] = 0xff;
+        SPO2_Data[2] = status;
+    }
+    else
+    {
+        SPO2_Data[0] = spo2;
+        SPO2_Data[1] = plus;
+        SPO2_Data[2] = status;
+    }
+}
+
+/**
+ * @brief 顺磁氧数据处理
+ * @param FiO2:取值范围（0-100）
+
+ * @param State:
+			0：未连接
+			1：连接
+ * @return None
+**/
+void FIO2_handle(u8 FiO2, u8 status, u8 Reserved)
+{
+    FIO2_Data[0] = FiO2;
+    FIO2_Data[1] = status;
+    FIO2_Data[1] = Reserved;
+}
+
+/**
+ * @brief AA_ETCO2模块数据0的处理
+ * @param EtCO2:
+			取值范围（0-250）
+ * @param FiCO2:
+			取值范围（0-250）
+ * @param AtmPressure:
+			取值范围（500-1300）
+ * @param IRMA_ID:
+				0:无
+				1:CO2
+				2:AA
+ * @return None
+ * @details 当IRMA_ID=0时，EtCO2=0xFF, FiCO2=0xFF
+**/
+void AA_ETCO2_0_handle(u8 EtCO2, u8 FiCO2, u8 IRMA_ID, u16 AtmPressure)
+{
+    if(IRMA_ID == 0)
+    {
+        AA_ETCO2_0_Data[0] = 0xFF;
+        AA_ETCO2_0_Data[1] = 0xFF;
+    }
+    else
+    {
+        AA_ETCO2_0_Data[0] = EtCO2;
+        AA_ETCO2_0_Data[1] = FiCO2;
+
+    }
+    AA_ETCO2_0_Data[2] = IRMA_ID;
+
+    AA_ETCO2_0_Data[3] = AtmPressure;
+    AA_ETCO2_0_Data[4] = AtmPressure >> 8;
+
+}
+
+/**
+ * @brief AA_ETCO2模块数据1的处理
+ * @param IRMDA_ID:
+
+ * @param EtAA1:
+
+ * @param FiAA1:
+
+ * @param EtAA2:
+
+ * @param FiAA2:
+
+ * @param EtN2O:
+
+ * @param FiN2O:
+
+ * @param AA1ld:
+
+ * @param AAld:
+
+ * @return None
+ * @details
+   其中：当IRMA_ID != AA时EtN2O=0xFF, FiN2O=0xFF, EtAA1=0xFF,
+   FiAA1=0xFF, EtAA2=0xFF, FiAA2=0xFF
+**/
+void AA_ETCO2_1_handle(u8 IRMA_ID, u8 EtAA1, u8 FiAA1, u8 EtAA2, u8 FiAA2,
+                       u8 EtN2O, u8 FiN2O, u8 AA1ld, u8 AA2ld)
+{
+    if(IRMA_ID != 2)
+    {
+        AA_ETCO2_1_Data[0] = 0xFF;
+        AA_ETCO2_1_Data[1] = 0xFF;
+        AA_ETCO2_1_Data[2] = 0xFF;
+        AA_ETCO2_1_Data[3] = 0xFF;
+        AA_ETCO2_1_Data[4] = 0xFF;
+        AA_ETCO2_1_Data[5] = 0xFF;
+    }
+    else
+    {
+        AA_ETCO2_1_Data[0] = EtAA1;
+        AA_ETCO2_1_Data[1] = FiAA1;
+        AA_ETCO2_1_Data[2] = EtAA2;
+        AA_ETCO2_1_Data[3] = FiAA2;
+        AA_ETCO2_1_Data[4] = EtN2O;
+        AA_ETCO2_1_Data[5] = FiN2O;
+    }
+    AA_ETCO2_1_Data[6] = AA1ld;
+    AA_ETCO2_1_Data[7] = AA2ld;
+}
+
+/**
+ * @brief AA_ETCO2模块数据2的处理
+ * @param CO2
+			取值范围（0-2500）
+ * @param N2O
+			取值范围（0-10000）
+ * @param AA1
+			取值范围（0-2500）
+ * @param AA2
+			取值范围（0-2500）
+ * @return None
+ * @details 该波形数据每隔25ms发送一次，需要注意
+**/
+void AA_ETCO2_2_handle(u16 CO2, u16 N2O, u16 AA1, u16 AA2)
+{
+    AA_ETCO2_2_Data[0] = CO2;
+    AA_ETCO2_2_Data[1] = CO2 >> 8;
+
+    AA_ETCO2_2_Data[2] = N2O;
+    AA_ETCO2_2_Data[3] = N2O >> 8;
+
+    AA_ETCO2_2_Data[4] = AA1;
+    AA_ETCO2_2_Data[5] = AA1 >> 8;
+
+    AA_ETCO2_2_Data[6] = AA2;
+    AA_ETCO2_2_Data[7] = AA2 >> 8;
+
+}
+
+/**
+* @brief AA_ETCO2模块数据3的处理
+* @param Sensor_Error
+
+* @param Data_Valid
+
+* @param Adapater_Status
+
+* @param Zero
+
+* @param N2O_Comp
+
+
+* @return None
+* @details a full description of what the function does
+**/
+void AA_ETCO2_3_handle(u8 Sensor_Error, u8 Data_Valid, u8 Adapater_Status, u8 Zero, u8 N2O_Comp)
+{
+
+    AA_ETCO2_3_Data[0] = Sensor_Error;
+    AA_ETCO2_3_Data[1] = Data_Valid;
+    AA_ETCO2_3_Data[2] = Adapater_Status;
+    AA_ETCO2_3_Data[3] = Zero;
+    AA_ETCO2_3_Data[4] = N2O_Comp;					
+
+}
+/*对需要发送的数据进行处理，优化结构为后续需要发送的数据进行预处理*/
+/**
+ * @brief 校准信息
+
+ * @param ID：校准项目的ID
+
+ * @param Status：校准状态
+			0：成功
+			1：失败
+
+ * @return None
+ * @details a full description of what the function does
+**/
+void Calibration_ID_handle(u8 ID, u8 status)
+{
+    Calibration_ID_Data[0] = ID;
+    Calibration_ID_Data[1] = status;
+}
+
+/*---------------------------------------------------------------------------------------------------*/
+/*******************************以下为接收的数据预处理************************************************/
+/*---------------------------------------------------------------------------------------------------*/
+
+/**
+ * @brief 按键板向主控发送信息的程序
+ * @param None
+ * @return 如果没有通信任务，返回为1.
+**/
+u8 CommunicationDataHandle_TXD(void)
+{
+    u8 i;
+    if(USART_TXD_REGISTER == 0)
+        return 1;
+
+    for(i = 0; i < 32; i++)
+    {
+        if(USART_TXD_REGISTER & (1 << i))
+        {
+            break;
+        }
+    }
+    switch(1<< i)
+    {
+    case Version_Information_Flag:
+		USART5_Data_Transmit(	Version_Information_length,
+								Version_Information_ID,
+								Version_Data);
+		USART_TXD_REGISTER&=~Version_Information_Flag;
+        break;
+    case KeyValue_Information_Flag:
+		USART5_Data_Transmit(	
+								KeyValue_Information_length,
+								KeyValue_Information_ID,
+								KeyValue_Data);
+		USART_TXD_REGISTER&=~KeyValue_Information_Flag;
+
+        break;
+    case PowerStatus_Information_Flag:
+		USART5_Data_Transmit(	
+								PowerStatus_Information_length,
+								PowerStatus_Information_ID,
+								PowerStatus_Data);	
+		USART_TXD_REGISTER&=~PowerStatus_Information_Flag;
+        break;
+    case ElectronicFlowmeter_Information_Flag:
+		USART5_Data_Transmit(	ElectronicFlowmeter_Information_length,
+								ElectronicFlowmeter_Information_ID,
+								ElectronicFlowmeter_Data);	
+	
+		USART_TXD_REGISTER&=~ElectronicFlowmeter_Information_Flag;
+	
+        break;
+    case SPO2_Information_Flag :
+		USART5_Data_Transmit(	SPO2_Information_length,
+								SPO2_Information_ID,
+								SPO2_Data);	
+		USART_TXD_REGISTER&=~SPO2_Information_Flag;
+	
+        break;
+    case FIO2_Information_Flag :
+		USART5_Data_Transmit(	FIO2_Information_length,
+								FIO2_Information_ID,
+								FIO2_Data);	
+		USART_TXD_REGISTER&=~FIO2_Information_Flag;
+        break;
+    case AA_ETCO2_Information_0_Flag :
+		USART5_Data_Transmit(	AA_ETCO2_Information_0_length,
+								AA_ETCO2_Information_0_ID,
+								AA_ETCO2_0_Data);	
+		USART_TXD_REGISTER&=~AA_ETCO2_Information_0_Flag;
+        break;
+    case AA_ETCO2_Information_1_Flag :
+		USART5_Data_Transmit(	AA_ETCO2_Information_1_length,
+								AA_ETCO2_Information_1_ID,
+								AA_ETCO2_1_Data);	
+		USART_TXD_REGISTER&=~AA_ETCO2_Information_1_Flag;
+        break;
+    case AA_ETCO2_Information_2_Flag :
+		USART5_Data_Transmit(	AA_ETCO2_Information_2_length,
+								AA_ETCO2_Information_2_ID,
+								AA_ETCO2_2_Data);	
+		USART_TXD_REGISTER&=~AA_ETCO2_Information_2_Flag;		
+        break;
+    case AA_ETCO2_Information_3_Flag :
+		USART5_Data_Transmit(	AA_ETCO2_Information_3_length,
+								AA_ETCO2_Information_3_ID,
+								AA_ETCO2_3_Data);	
+		USART_TXD_REGISTER&=~AA_ETCO2_Information_3_Flag;		
+        break;
+    case Calibration_ID_Information_Flag :
+		USART5_Data_Transmit(	Calibration_ID_Information_length,
+								Calibration_ID_Information_ID,
+								Calibration_ID_Data);	
+		USART_TXD_REGISTER&=~Calibration_ID_Information_Flag;		
+        break;
+	default :
+		break;
+    }
+	return 0;
+}
+
+/**
+ * @brief 从上位机接收到的信息处理
+ * @param None
+ * @return None
+ * @details 对收到的信息进行处理
+**/
+void CommunicationDataHandle_RXD(void)
+{
+	u8 i;
+    if(USART_RXD_REGISTER != 0) 
+
+	{
+	
+    for(i = 0; i < 32; i++)
+    {
+        if(USART_TXD_REGISTER & (1 << i))
+        {
+            break;
+        }
+    }
+}
+	
+}

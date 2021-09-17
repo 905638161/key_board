@@ -1,0 +1,144 @@
+/**
+* @file 	spo2.c
+* @brief	血氧模块通信串口的初始化,串口数据的处理
+* @details
+* @author	亚
+* @date		date
+* @version	A001
+* @par Copyright (c):
+* 		北京易世恒技术有限责任公司公司
+* @par History:
+*	  version: author, date, desc
+
+*/
+
+#include "spo2.h"
+
+/*---------------------------- USART2 Mode Configuration -----------------------*/
+/**
+  * @brief  USART2 初始化，USART2进行了重映射，因此需要初始化USART1略有不同
+  * @param  baud: Set the communication baud rate 4800
+  * @details 血氧模块通信串口,波特率为4800,奇校验
+  * @retval None
+  */
+void USART2_Init(u32 baud)
+{
+    //GPIO端口设置
+    GPIO_InitTypeDef  GPIO_InitStructure;
+    USART_InitTypeDef USART_InitStructure;
+    NVIC_InitTypeDef  NVIC_InitStructure;
+
+
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);	//使能USART2
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOD | RCC_APB2Periph_AFIO, ENABLE);	//使能GPIOD,开启复用时钟
+    USART_DeInit(USART2);  //复位串口2
+
+    /*进行USART2的重映射配置*/
+    GPIO_PinRemapConfig  (GPIO_Remap_USART2, ENABLE);
+
+    /*USART2_TX   PD.5*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_5; //PD.5
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;	//复用推挽输出
+    GPIO_Init(GPIOD, &GPIO_InitStructure); //初始化PD5
+
+    /*USART2_RX   PD.6*/
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;//浮空输入
+    GPIO_Init(GPIOD, &GPIO_InitStructure);  //初始化PD6
+
+//    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2); //设置中断组2，0-3抢占优先级，0-3响应优先级；
+
+
+    NVIC_InitStructure.NVIC_IRQChannel = USART2_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 3 ; //抢占优先级3
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;		//子优先级3
+    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;			//IRQ通道使能
+    NVIC_Init(&NVIC_InitStructure);	//根据指定的参数初始化VIC寄存器
+
+    //USART初始化设置
+
+
+    USART_InitStructure.USART_BaudRate = baud;//波特率的设置
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;//字长为8位数据格式
+    USART_InitStructure.USART_StopBits = USART_StopBits_1;//一个停止位
+    USART_InitStructure.USART_Parity = USART_Parity_Odd;//奇校验
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;//无硬件数据流控制
+    USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;	//收发模式
+
+    USART_Init(USART2, &USART_InitStructure); //初始化串口
+    USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);//开启中断
+    USART_Cmd(USART2, ENABLE);                    //使能串口
+}
+
+/**
+  * @brief  Transmits single data through the USART2 peripheral.
+  * @param  Data：The data to transmit.
+  * @retval None
+  */
+void USART2_Send_Byte(u8 Data) //发送一个字节；
+{
+    USART_SendData(USART2, Data);
+    while( USART_GetFlagStatus(USART2, USART_FLAG_TC) == RESET );
+}
+/**
+  * @brief  Transmits  string data through the USART2 peripheral.
+  * @param  Data: the data to transmit.
+  * @retval None
+  */
+void USART2_Send_String(u8 *Data) //发送字符串；
+{
+    while(*Data)
+        USART2_Send_Byte(*Data++);
+}
+/**
+  * @brief  USART2 interrupt handing function.
+  * @param  None
+  * @details 对收到的数据进行初步的处理，初级加工
+			 血氧模块发送的数据有5个字节
+  * @retval None
+  */
+void USART2_IRQHandler(void) //中断处理函数;
+{
+    static u8 	Usart2RxBuffer[6] = {0};
+    static u16	Wait_Syn = TRUE;
+    u8 data = 0;
+    u8 i = 0;
+    if(USART_GetITStatus(USART2, USART_IT_RXNE) == SET) //判断是否发生中断;
+    {
+        USART_ClearFlag(USART2, USART_IT_RXNE); //清除标志位；
+        if(Wait_Syn == TRUE)
+        {
+            data = USART_ReceiveData(USART2); //接收数据；
+            Usart2RxBuffer[0] = data;
+            if(data & 0x80) Wait_Syn = FALSE;
+        }
+        else
+        {
+            Usart2RxBuffer[i++] = data;
+            if(i == 4) Wait_Syn = TRUE;
+        }
+    }
+}
+
+/**
+  * @brief  USART2 interrupt handing function.
+  * @param  None
+  * @retval None
+  */
+void SPO2_DataHandle(u8 *pointer)
+{
+    SPO2_PARAMETERS SpO2Para;
+	
+    SpO2Para.NoPatient = (*pointer) & 0x10;
+    SpO2Para.NoSensor = (*pointer) & 0x20;
+    SpO2Para.HeartBeatFlag = (*pointer) & 0x40;
+    SpO2Para.WaveData = *(pointer + 1) & 0x7F;
+    SpO2Para.SensorErr = *(pointer + 2) & 0x30;
+    SpO2Para.PulseRate = (((*(pointer + 2) & 0x40) << 1) | (*(pointer + 3) & 0x7F));
+    SpO2Para.SpO2 = *(pointer + 4) & 0x7F;
+	 if((SpO2_Parameters.HeartBeatFlag)&&(SpO2_Parameters.NoPatient == 0)&&((SpO2_Parameters.SensorErr&0x10) != 0x10))
+                     {
+                             SpO2ModuleWorkingFlag = 1;
+                     }              
+}

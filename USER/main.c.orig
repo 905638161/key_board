@@ -1,0 +1,72 @@
+#include "stm32f10x.h"
+#include "delay.h"
+//#include "display.h"
+#include "led.h"
+//#include "ch452.h"
+//#include "myiic.h"
+//#include "24cxx.h"
+//#include "adc.h"
+#include "usart.h"
+#include "timer.h"
+//#include "dma.h"
+#include "wt588d.h"
+#include "encoder.h"
+//    IIC_Init();
+extern u8 USART2_Sta;
+
+
+int  main(void)
+{
+
+    delay_init();
+
+//    USART1_Init(4800);
+//    USART2_Init(9600);
+//    USART3_Init(9600);
+
+//    UART4_Init(9600);
+//    UART5_Init(9600);
+    WT588D_Init();
+    LED_Init();
+    Alarm_LED_Init();
+    Rotary_Encoder_Init();
+//    USART1_Buffer[0]=0xa5;
+//    CH452_Init();
+//    IIC_Init();
+//    AT24CXX_Init();
+//    Adc_Init();
+//    DMA_Configuration();
+    TIM3_Int_Init(99, 7199); //10KHZ£¬10ms
+    NVIC_Configuration();
+    while(1)
+    {
+//        if(USART2_Sta)
+//        {
+//            WT588D_Send(0X01);
+//            delay_ms(30);
+//            WT588D_Send(S_loop);
+//            USART2_Sta = 0;
+//            LED1 = !LED1;
+//        }
+//        Alarm_High_LedFlash(Alarm_High_and_Medium_Flag);
+		Alarm_Medium_LedFlash(Alarm_Medium_Flag);
+//		Alarm_Low_LedFlash(Alarm_High_and_Low_Flag);
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

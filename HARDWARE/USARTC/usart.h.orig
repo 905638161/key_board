@@ -1,0 +1,70 @@
+#ifndef __USART_H
+#define __USART_H
+#include "stdio.h"
+#include "sys.h"
+//////////////////////////////////////////////////////////////////////////////////
+
+//********************************************************************************
+
+enum data_id
+{
+	ALARM_SET=1,    //报警设置
+	KEY_LED_SET,	//按键LED设置
+	EFLOW_SET,		//电子流量计设置
+	IRMA_CAL,		//麻醉气体模快校验
+	OXYGEN_CAL,    	//顺磁氧校验
+	EFLOWMETER_SET,
+	GET_ID
+};
+
+struct {
+	u8 voice;
+	u8 alarm_priority;
+	u8 silence;
+	u8 alarm_led;
+}Alarm_Set;			//报警设置
+
+struct{
+	u16 KEY_LED;
+}KEY_LED_Set;  		//按键LED设置
+
+struct{
+	u8 balance;
+	u8 FiO2;
+	u16 Flow;
+}Flow_meter_Set;   //电子流量计设置
+
+struct{
+	u8 Item;
+	u8 value;
+}IRAM_Cal;         //麻醉气体模快校验
+
+struct{
+	u8 Id;
+}Oxygen_Set;//顺磁氧校验
+
+struct{
+	u8 Id;
+}EflowMeter_Set;//电子流量计校验
+
+struct{
+	u8 Id;
+}Get_Id;      //获取ID
+
+void USART2_Init(u32 baud);
+void USART3_Init(u32 baud);
+
+void UART4_Init(u32 baud);
+void UART5_Init(u32 baud);
+
+void USART1_Send_Byte(u8 Data);
+void USART2_Send_Byte(u8 Data);
+
+
+void USART5_Data_Transmit(u8 len, u8 ID, u8 *data);
+
+u8 CalculateCheckSum(u8 len, u8 *array);
+
+#endif
+
+

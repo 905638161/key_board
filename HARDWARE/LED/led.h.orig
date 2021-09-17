@@ -1,0 +1,33 @@
+#ifndef __LED_H
+#define __LED_H
+#include "sys.h"
+//////////////////////////////////////////////////////////////////////////////////
+
+//All rights reserved
+//////////////////////////////////////////////////////////////////////////////////
+#define LED1 PEout(8)	// PB0
+
+extern u16  Flag_250ms;
+extern u16  Flag_1s;
+
+/**
+  * @brief  枚举报警状态
+  */
+enum AlarmStatus
+{
+    Alarm_None_Flag,                //没有报警
+    Alarm_High_Flag,                //高级报警
+    Alarm_Medium_Flag,              //中级报警
+	 Alarm_Low_Flag,
+    Alarm_High_and_Medium_Flag,     //高级报警和中级报警同时发生
+	 Alarm_High_and_Low_Flag,		//高级报警和低级报警同时发生
+};//枚举报警状态
+
+
+void LED_Init(void);  //初始化
+void LED_Flash (void);//LED灯的闪烁
+void Alarm_LED_Init(void);
+void Alarm_High_LedFlash(u8 module); //高级报警灯闪烁
+void Alarm_Medium_LedFlash(u8 module);//中级报警灯闪烁
+
+#endif

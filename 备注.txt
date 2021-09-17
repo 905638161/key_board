@@ -1,0 +1,1 @@
+1.STM32的PB3、PB4为JDO、NJRST的JTAG调试模块引脚，用作它用时要关闭JTAG模块
